@@ -1,38 +1,76 @@
-#[derive(Debug, Copy, Clone)]
-struct Element {
-    mass: f32
-}
-
 macro_rules! table {
-    ($($k:expr; $v:expr,)*) => (
-        {
-            let mut map = std::collections::HashMap::new();
-            $(
-                map.insert($k.to_owned(), Element{mass: $v});
-            )*
-            map
+    ($el:ident, $($k:ident; $v:expr,)*) => (
+        #[derive(Debug, Copy, Clone)]
+        #[repr(u8)]
+        enum $el {
+            $($k),*
+        }
+
+        impl $el {
+            fn mass(&self) -> f64 {
+                match *self {
+                    $($el::$k => $v),*
+                }
+            }
+        }
+
+        impl std::str::FromStr for $el {
+            type Err = ();
+            fn from_str(s: &str) -> Result<$el, ()> {
+                match s {
+                    $(stringify!($k) => Ok($el::$k),)*
+                    _ => Err(())
+                }
+            }
         }
     );
 }
 
+include!("table.rs");
+
 fn main() {
-    let table = include!("table.rs");
+    let stof = parse_arg(std::env::args().skip(1).collect::<Vec<_>>().join(" "));
 
-    let mut stof = Vec::new();
-    for c in std::env::args().skip(1).collect::<String>().chars() {
-        if c.is_uppercase() {
-            stof.push(c.to_string());
-        } else if c.is_numeric() {
-            let el = stof.last().unwrap().clone();
-            for _ in 1..c.to_string().parse::<u8>().unwrap() {
-                stof.push(el.clone());
+    let mol_mass: f64 = stof.iter().map(|&El(n, e)| n as f64 * e.mass()).sum();
+
+    println!("Molar mass: {} g/mol", mol_mass);
+    let mellemregning = stof.iter()
+        .map(|&El(n, e)| format!("{} * M({:?})", n, e))
+        .collect::<Vec<_>>()
+        .join(" + ");
+    let mellemregning2 = stof.into_iter()
+        .map(|El(n, e)| format!("{} * {}", n, e.mass()))
+        .collect::<Vec<_>>()
+        .join(" + ");
+
+    println!("{} =\n{} = {}", mellemregning, mellemregning2, mol_mass);
+}
+
+#[derive(Debug)]
+struct El(u8, Element);
+
+fn parse_arg(arg: String) -> Vec<El> {
+    let mut stof = Vec::<El>::new();
+    let mut cur = String::new();
+
+    for c in arg.chars().chain(Some('\x00')) {
+        if c.is_uppercase() && !cur.is_empty() || !c.is_alphanumeric() {
+            let num_index = cur.find(<char>::is_numeric).unwrap_or_else(|| cur.len());
+
+            let element = cur[..num_index].parse().unwrap();
+            let num;
+
+            if !cur[num_index..].is_empty() {
+                num = cur[num_index..].parse().unwrap();
+            } else {
+                num = 1;
             }
-        } else {
-            stof.last_mut().unwrap().push(c);
+
+            stof.push(El(num, element));
+
+            cur.clear();
         }
+        cur.push(c);
     }
-
-    let mol_mass: f32 = stof.iter().map(|s| table.get(s).unwrap().mass).sum();
-
-    println!("Molar mass: {}", mol_mass);
+    stof
 }
